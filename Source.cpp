@@ -37,7 +37,7 @@ typedef struct
 
 static UINT WriteIconHeader(HANDLE hFile, int nImages)
 {
-	ICONHEADER iconheader;
+	ICONHEADER iconheader = { 0 };
 	DWORD nWritten;
 	iconheader.idReserved = 0;
 	iconheader.idType = 1;
@@ -58,8 +58,7 @@ static UINT WriteIconImageHeader(HANDLE hFile, BITMAP *pbmpColor, BITMAP *pbmpMa
 {
 	BITMAPINFOHEADER biHeader = { 0 };
 	DWORD nWritten;
-	UINT nImageBytes;
-	nImageBytes = NumBitmapBytes(pbmpColor) + NumBitmapBytes(pbmpMask);
+	const UINT nImageBytes = NumBitmapBytes(pbmpColor) + NumBitmapBytes(pbmpMask);
 	ZeroMemory(&biHeader, sizeof(biHeader));
 	biHeader.biSize = sizeof(biHeader);
 	biHeader.biWidth = pbmpColor->bmWidth;
@@ -90,9 +89,8 @@ static UINT WriteIconDirectoryEntry(HANDLE hFile, int nIdx, HICON hIcon, UINT nI
 	BITMAP bmpMask = { 0 };
 	DWORD nWritten;
 	UINT nColorCount;
-	UINT nImageBytes;
 	GetIconBitmapInfo(hIcon, &iconInfo, &bmpColor, &bmpMask);
-	nImageBytes = NumBitmapBytes(&bmpColor) + NumBitmapBytes(&bmpMask);
+	const UINT nImageBytes = NumBitmapBytes(&bmpColor) + NumBitmapBytes(&bmpMask);
 	if (bmpColor.bmBitsPixel >= 8)
 		nColorCount = 0;
 	else
@@ -114,15 +112,12 @@ static UINT WriteIconDirectoryEntry(HANDLE hFile, int nIdx, HICON hIcon, UINT nI
 static UINT WriteIconData(HANDLE hFile, HBITMAP hBitmap)
 {
 	BITMAP bmp = { 0 };
-	int i;
-	BYTE * pIconData;
-	UINT nBitmapBytes;
 	DWORD nWritten;
 	GetObject(hBitmap, sizeof(BITMAP), &bmp);
-	nBitmapBytes = NumBitmapBytes(&bmp);
-	pIconData = (BYTE *)malloc(nBitmapBytes);
+	UINT nBitmapBytes = NumBitmapBytes(&bmp);
+	BYTE* pIconData = (BYTE*)malloc(nBitmapBytes);
 	GetBitmapBits(hBitmap, nBitmapBytes, pIconData);
-	for (i = bmp.bmHeight - 1; i >= 0; i--)
+	for (int i = bmp.bmHeight - 1; i >= 0; --i)
 	{
 		WriteFile(
 			hFile,
@@ -140,9 +135,8 @@ static UINT WriteIconData(HANDLE hFile, HBITMAP hBitmap)
 	return nBitmapBytes;
 }
 
-BOOL SaveIcon3(TCHAR *szIconFile, HICON hIcon[], int nNumIcons)
+BOOL SaveIcon(TCHAR *szIconFile, HICON hIcon[], int nNumIcons)
 {
-	int * pImageOffset;
 	if (hIcon == 0 || nNumIcons < 1)
 		return FALSE;
 	HANDLE hFile = CreateFile(szIconFile, GENERIC_WRITE, 0, 0, CREATE_ALWAYS, 0, 0);
@@ -150,7 +144,7 @@ BOOL SaveIcon3(TCHAR *szIconFile, HICON hIcon[], int nNumIcons)
 		return FALSE;
 	WriteIconHeader(hFile, nNumIcons);
 	SetFilePointer(hFile, sizeof(ICONDIR) * nNumIcons, 0, FILE_CURRENT);
-	pImageOffset = (int *)malloc(nNumIcons * sizeof(int));
+	int* pImageOffset = (int*)malloc(nNumIcons * sizeof(int));
 	for (int i = 0; i < nNumIcons; ++i)
 	{
 		ICONINFO iconInfo = { 0 };
@@ -217,13 +211,15 @@ HICON CreateAlphaIcon(Gdiplus::Bitmap *pImg, DWORD dwSize)
 		Gdiplus::Bitmap *bitmap = new Gdiplus::Bitmap(dwSize, dwSize, PixelFormat32bppARGB);
 		{
 			Gdiplus::Graphics * g = Gdiplus::Graphics::FromImage(bitmap);
+			g->Clear(Gdiplus::Color(0, 255, 255, 255));
 			g->SetInterpolationMode(Gdiplus::InterpolationModeHighQuality);
 			g->SetCompositingQuality(Gdiplus::CompositingQualityHighQuality);
 			g->SetCompositingMode(Gdiplus::CompositingModeSourceOver);
-			g->DrawImage(pImg, Gdiplus::Rect(0, 0, dwSize, dwSize),
-				0, 0,
-				pImg->GetWidth(), pImg->GetHeight(),
-				Gdiplus::UnitPixel);
+			const float w = (float)dwSize * min((float)pImg->GetWidth() / (float)pImg->GetHeight(), 1.0f);
+			const float h = (float)dwSize * min((float)pImg->GetHeight() / (float)pImg->GetWidth(), 1.0f);
+			const float x = (dwSize - w) / 2.0f;
+			const float y = (dwSize - h) / 2.0f;
+			g->DrawImage(pImg, x, y, w, h);
 			delete g;
 		}
 		Gdiplus::BitmapData bitmapdata;
@@ -233,9 +229,8 @@ HICON CreateAlphaIcon(Gdiplus::Bitmap *pImg, DWORD dwSize)
 		const UINT* pixel = (UINT*)bitmapdata.Scan0;
 		const byte* p = (byte*)pixel;
 		{
-			DWORD *lpdwPixel;
-			lpdwPixel = (DWORD *)lpBits;
-			for (int y = dwSize - 1; y >=0; --y)
+			DWORD* lpdwPixel = (DWORD*)lpBits;
+			for (int y = dwSize - 1; y >= 0; --y)
 			{
 				for (int x = 0; x < (int)dwSize; ++x)
 				{
@@ -252,14 +247,14 @@ HICON CreateAlphaIcon(Gdiplus::Bitmap *pImg, DWORD dwSize)
 	}
 	SelectObject(hMemDC, hOldBitmap);
 	DeleteDC(hMemDC);
-	HBITMAP hMonoBitmap = ::CreateBitmap(dwSize, dwSize, 1, 1, NULL);
+	HBITMAP hMonoBitmap = CreateBitmap(dwSize, dwSize, 1, 1, NULL);
 	ICONINFO ii = { 0 };
 	ii.fIcon = TRUE;
 	ii.xHotspot = 0;
 	ii.yHotspot = 0;
 	ii.hbmMask = hMonoBitmap;
 	ii.hbmColor = hBitmap;
-	hAlphaIcon = ::CreateIconIndirect(&ii);
+	hAlphaIcon = CreateIconIndirect(&ii);
 	DeleteObject(hBitmap);
 	DeleteObject(hMonoBitmap);
 	return hAlphaIcon;
@@ -277,6 +272,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		CreateWindow(TEXT("BUTTON"), TEXT("96 x 96 (&5)"), WS_VISIBLE | WS_CHILD | WS_TABSTOP | BS_AUTOCHECKBOX, 10, 170, 256, 32, hWnd, (HMENU)104, ((LPCREATESTRUCT)lParam)->hInstance, 0);
 		CreateWindow(TEXT("BUTTON"), TEXT("128 x 128 (&6)"), WS_VISIBLE | WS_CHILD | WS_TABSTOP | BS_AUTOCHECKBOX, 10, 210, 256, 32, hWnd, (HMENU)105, ((LPCREATESTRUCT)lParam)->hInstance, 0);
 		CreateWindow(TEXT("BUTTON"), TEXT("256 x 256 (&7)"), WS_VISIBLE | WS_CHILD | WS_TABSTOP | BS_AUTOCHECKBOX, 10, 250, 256, 32, hWnd, (HMENU)106, ((LPCREATESTRUCT)lParam)->hInstance, 0);
+		for (int i = 0; i < 7; ++i)
+		{
+			SendDlgItemMessage(hWnd, 100 + i, BM_SETCHECK, BST_CHECKED, 0);
+		}
 		CreateWindow(TEXT("STATIC"), TEXT("チェックを付けて画像ファイルをドラッグ＆ドロップしてください。"), WS_VISIBLE | WS_CHILD, 10, 290, 512, 32, hWnd, 0, ((LPCREATESTRUCT)lParam)->hInstance, 0);
 		DragAcceptFiles(hWnd, TRUE);
 		break;
@@ -292,10 +291,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 			Gdiplus::Bitmap *bitmap = Gdiplus::Bitmap::FromFile(szFileName);
 			if (bitmap)
 			{
-				HICON hIcon[64] = { 0 };
+				HICON hIcon[7] = { 0 };
 				int nTotalCount = 0;
-				int listSize[] = { 16, 32, 48, 64, 96, 128, 256 };
-				for (int i = 0; i <= 6; ++i)
+				int listSize[7] = { 16, 32, 48, 64, 96, 128, 256 };
+				for (int i = 0; i < 7; ++i)
 				{
 					if (SendDlgItemMessage(hWnd, 100 + i, BM_GETCHECK, 0, 0))
 					{
@@ -306,8 +305,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 				TCHAR szOutputIconPath[MAX_PATH];
 				lstrcpy(szOutputIconPath, szFileName);
 				PathRemoveExtension(szOutputIconPath);
-				PathAddExtension(szOutputIconPath, TEXT(".ico"));
-				SaveIcon3(szOutputIconPath, hIcon, nTotalCount);
+				lstrcat(szOutputIconPath, TEXT(".ico"));
+				SaveIcon(szOutputIconPath, hIcon, nTotalCount);
 				for (int i = 0; i < nTotalCount; ++i)
 				{
 					DestroyIcon(hIcon[i]);

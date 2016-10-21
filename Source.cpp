@@ -175,16 +175,13 @@ BOOL SaveIcon3(TCHAR *szIconFile, HICON hIcon[], int nNumIcons)
 
 HICON CreateAlphaIcon(Gdiplus::Bitmap *pImg, DWORD dwSize)
 {
-	DWORD dwWidth, dwHeight;
 	BITMAPV5HEADER bi = { 0 };
 	void *lpBits;
 	HICON hAlphaIcon = NULL;
-	dwWidth = dwSize;
-	dwHeight = dwSize;
 	ZeroMemory(&bi, sizeof(BITMAPV5HEADER));
 	bi.bV5Size = sizeof(BITMAPV5HEADER);
-	bi.bV5Width = dwWidth;
-	bi.bV5Height = dwHeight;
+	bi.bV5Width = dwSize;
+	bi.bV5Height = dwSize;
 	bi.bV5Planes = 1;
 	bi.bV5BitCount = 32;
 	bi.bV5Compression = BI_BITFIELDS;
@@ -209,33 +206,53 @@ HICON CreateAlphaIcon(Gdiplus::Bitmap *pImg, DWORD dwSize)
 	bi.bV5ProfileData = 0;
 	bi.bV5ProfileSize = 0;
 	bi.bV5Reserved = 0;
-	HDC hdc = ::GetDC(NULL);
-	HBITMAP hBitmap = ::CreateDIBSection(hdc, reinterpret_cast<BITMAPINFO *>(&bi),
+	const HDC hdc = GetDC(NULL);
+	const HBITMAP hBitmap = CreateDIBSection(hdc, reinterpret_cast<BITMAPINFO *>(&bi),
 		DIB_RGB_COLORS,
 		&lpBits, NULL, DWORD(0));
-	HDC hMemDC = ::CreateCompatibleDC(hdc);
-	::ReleaseDC(NULL, hdc);
-	HBITMAP hOldBitmap = static_cast<HBITMAP>(SelectObject(hMemDC, hBitmap));
-	PatBlt(hMemDC, 0, 0, dwWidth, dwHeight, WHITENESS);
-	if (pImg)
+	const HDC hMemDC = CreateCompatibleDC(hdc);
+	ReleaseDC(NULL, hdc);
+	const HBITMAP hOldBitmap = static_cast<HBITMAP>(SelectObject(hMemDC, hBitmap));
 	{
-		Gdiplus::Graphics * g = Gdiplus::Graphics::FromHDC(hMemDC);
-		if (g)
+		Gdiplus::Bitmap *bitmap = new Gdiplus::Bitmap(dwSize, dwSize, PixelFormat32bppARGB);
 		{
-			Gdiplus::Status stat = g->GetLastStatus();
+			Gdiplus::Graphics * g = Gdiplus::Graphics::FromImage(bitmap);
 			g->SetInterpolationMode(Gdiplus::InterpolationModeHighQuality);
 			g->SetCompositingQuality(Gdiplus::CompositingQualityHighQuality);
 			g->SetCompositingMode(Gdiplus::CompositingModeSourceOver);
-			g->DrawImage(pImg, Gdiplus::Rect(0, 0, dwWidth, dwHeight),
+			g->DrawImage(pImg, Gdiplus::Rect(0, 0, dwSize, dwSize),
 				0, 0,
 				pImg->GetWidth(), pImg->GetHeight(),
 				Gdiplus::UnitPixel);
 			delete g;
 		}
+		Gdiplus::BitmapData bitmapdata;
+		const Gdiplus::Rect rect(0, 0, dwSize, dwSize);
+		bitmap->LockBits(&rect, Gdiplus::ImageLockModeRead, PixelFormat32bppARGB, &bitmapdata);
+		const int stride = bitmapdata.Stride;
+		const UINT* pixel = (UINT*)bitmapdata.Scan0;
+		const byte* p = (byte*)pixel;
+		{
+			DWORD *lpdwPixel;
+			lpdwPixel = (DWORD *)lpBits;
+			for (int y = dwSize - 1; y >=0; --y)
+			{
+				for (int x = 0; x < (int)dwSize; ++x)
+				{
+					for (int i = 0; i < 4; ++i)
+					{
+						*lpdwPixel |= (p[4 * x + i + y*stride] << (8*i));
+					}
+					lpdwPixel++;
+				}
+			}
+		}
+		bitmap->UnlockBits(&bitmapdata);
+		delete bitmap;
 	}
-	::SelectObject(hMemDC, hOldBitmap);
-	::DeleteDC(hMemDC);
-	HBITMAP hMonoBitmap = ::CreateBitmap(dwWidth, dwHeight, 1, 1, NULL);
+	SelectObject(hMemDC, hOldBitmap);
+	DeleteDC(hMemDC);
+	HBITMAP hMonoBitmap = ::CreateBitmap(dwSize, dwSize, 1, 1, NULL);
 	ICONINFO ii = { 0 };
 	ii.fIcon = TRUE;
 	ii.xHotspot = 0;
@@ -334,7 +351,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPreInst, LPSTR pCmdLine, int 
 	RegisterClass(&wndclass);
 	HWND hWnd = CreateWindow(
 		szClassName,
-		TEXT("Window"),
+		TEXT("画像データからアイコンを作成する"),
 		WS_OVERLAPPEDWINDOW,
 		CW_USEDEFAULT,
 		0,
